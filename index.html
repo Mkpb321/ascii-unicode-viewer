@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Extended ASCII/Unicode Analyzer (Fixed)</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        margin: 30px;
+        background: #f5f5f5;
+    }
+    textarea {
+        width: 100%;
+        height: 120px;
+        margin-bottom: 10px;
+        font-size: 16px;
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid #aaa;
+        box-sizing: border-box;
+    }
+    button {
+        padding: 10px 20px;
+        font-size: 16px;
+        cursor: pointer;
+        border: none;
+        background: #0077ff;
+        color: white;
+        border-radius: 6px;
+    }
+    table {
+        width: 100%;
+        margin-top: 20px;
+        border-collapse: collapse;
+        background: white;
+        font-size: 13px;
+    }
+    th, td {
+        border: 1px solid #ccc;
+        padding: 6px;
+        text-align: center;
+        font-family: monospace;
+    }
+    th {
+        background: #e0e0e0;
+    }
+    tr.highlight td {
+        background: #b9ffb9 !important;
+    }
+</style>
+</head>
+<body>
+
+<h2>ASCII/Unicode Analyzer – Vollversion (Fix)</h2>
+
+<textarea id="input" placeholder="Text eingeben..."></textarea>
+<br>
+<button onclick="convert()">GO</button>
+
+<table id="output" style="display:none;">
+    <thead>
+        <tr>
+            <th>#</th>
+            <th>Char</th>
+            <th>Anzeige</th>
+            <th>Name</th>
+            <th>Kategorie</th>
+            <th>Block</th>
+            <th>Codepoint</th>
+            <th>Binär</th>
+            <th>Oktal</th>
+            <th>UTF-16</th>
+            <th>UTF-8</th>
+            <th>HTML</th>
+            <th>Surrogate?</th>
+            <th>Combining?</th>
+            <th>Printable?</th>
+        </tr>
+    </thead>
+    <tbody></tbody>
+</table>
+
+<script>
+// Fallback Unicode name (mini-database + dynamic naming)
+function getUnicodeName(ch, cp) {
+    const known = {
+        0x20: "SPACE",
+        0x0A: "LINE FEED",
+        0x0D: "CARRIAGE RETURN",
+        0x09: "HORIZONTAL TAB",
+    };
+    if (known[cp]) return known[cp];
+
+    // Basic Latin characters
+    if (cp >= 0x41 && cp <= 0x5A) return "LATIN CAPITAL LETTER " + ch;
+    if (cp >= 0x61 && cp <= 0x7A) return "LATIN SMALL LETTER " + ch;
+
+    return "U+" + cp.toString(16).toUpperCase();
+}
+
+// Unicode category via regex
+function getCategory(ch) {
+    try {
+        if (/\p{Letter}/u.test(ch)) return "Letter";
+        if (/\p{Number}/u.test(ch)) return "Number";
+        if (/\p{Punctuation}/u.test(ch)) return "Punctuation";
+        if (/\p{Symbol}/u.test(ch)) return "Symbol";
+        if (/\p{Separator}/u.test(ch)) return "Separator";
+        if (/\p{Mark}/u.test(ch)) return "Mark";
+        if (/\p{Control}/u.test(ch)) return "Control";
+    } catch {
+        return "Unknown";
+    }
+    return "Other";
+}
+
+// Block table
+const unicodeBlocks = [
+    ["Basic Latin", 0x0000, 0x007F],
+    ["Latin-1 Supplement", 0x0080, 0x00FF],
+    ["Latin Extended-A", 0x0100, 0x017F],
+    ["Combining Diacritical Marks", 0x0300, 0x036F],
+    ["Greek and Coptic", 0x0370, 0x03FF],
+    ["Cyrillic", 0x0400, 0x04FF],
+    ["Arabic", 0x0600, 0x06FF],
+    ["Emoji", 0x1F300, 0x1FAFF]
+];
+function getUnicodeBlock(cp) {
+    for (const [name, start, end] of unicodeBlocks) {
+        if (cp >= start && cp <= end) return name;
+    }
+    return "Unknown";
+}
+
+function escapeCharDisplay(ch) {
+    if (ch === " ") return "␣ (Space)";
+    if (ch === "\n") return "⏎ (LF)";
+    if (ch === "\r") return "␍ (CR)";
+    if (ch === "\t") return "⇥ (Tab)";
+    return ch;
+}
+
+function utf8Bytes(cp) {
+    return [...new TextEncoder().encode(String.fromCodePoint(cp))]
+        .map(v => v.toString(16).padStart(2, "0").toUpperCase())
+        .join(" ");
+}
+
+function utf16Units(ch) {
+    return [...ch].map(c => c.charCodeAt(0).toString(16).padStart(4, "0").toUpperCase()).join(" ");
+}
+
+function isPrintable(cp) {
+    return (cp >= 0x20 && cp !== 0x7F) || cp > 0x9F;
+}
+
+function convert() {
+    const text = document.getElementById("input").value;
+    const tbody = document.querySelector("#output tbody");
+    tbody.innerHTML = "";
+
+    if (!text.length) {
+        document.getElementById("output").style.display = "none";
+        return;
+    }
+
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        const cp = ch.codePointAt(0);
+
+        const tr = document.createElement("tr");
+        tr.dataset.char = ch;
+
+        tr.innerHTML = `
+            <td>${i}</td>
+            <td>${JSON.stringify(ch)}</td>
+            <td>${escapeCharDisplay(ch)}</td>
+            <td>${getUnicodeName(ch, cp)}</td>
+            <td>${getCategory(ch)}</td>
+            <td>${getUnicodeBlock(cp)}</td>
+            <td>${cp} (0x${cp.toString(16).toUpperCase()})</td>
+            <td>${cp.toString(2).padStart(16, "0")}</td>
+            <td>${cp.toString(8)}</td>
+            <td>${utf16Units(ch)}</td>
+            <td>${utf8Bytes(cp)}</td>
+            <td>&#${cp};</td>
+            <td>${ch.length > 1 ? "Yes" : "No"}</td>
+            <td>${/[\u0300-\u036f]/.test(ch) ? "Yes" : "No"}</td>
+            <td>${isPrintable(cp) ? "Yes" : "No"}</td>
+        `;
+
+        tr.addEventListener("mouseenter", () => highlightSameChars(ch));
+        tr.addEventListener("mouseleave", clearHighlight);
+
+        tbody.appendChild(tr);
+    }
+
+    document.getElementById("output").style.display = "table";
+}
+
+function highlightSameChars(ch) {
+    document.querySelectorAll("#output tbody tr").forEach(tr => {
+        if (tr.dataset.char === ch) tr.classList.add("highlight");
+    });
+}
+
+function clearHighlight() {
+    document.querySelectorAll("#output tbody tr").forEach(tr => {
+        tr.classList.remove("highlight");
+    });
+}
+</script>
+
+</body>
+</html>
