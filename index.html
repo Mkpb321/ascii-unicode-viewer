@@ -59,21 +59,66 @@
       margin-bottom: 8px;
     }
 
-    textarea{
-      width:100%;
-      height: 140px;
-      resize: vertical;
+    .textarea-shell{
       margin: 0 0 10px;
-      font-size: 16px;
-      padding: 12px 12px;
       border-radius: 10px;
       border: 1px solid var(--border);
       background: #fff;
-      outline: none;
+      position: relative;
+      overflow: hidden;
     }
-    textarea:focus{
+    .textarea-shell:focus-within{
       border-color: var(--accent);
       box-shadow: 0 0 0 3px rgba(0,119,255,.18);
+    }
+
+    #highlightBackdrop{
+      position: absolute;
+      inset: 0;
+      overflow: auto;
+      pointer-events: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    #highlightBackdrop::-webkit-scrollbar{ width:0; height:0; }
+
+    #inputHighlights{
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      color: var(--text);
+      padding: 12px 12px;
+      font-size: 16px;
+      line-height: 1.4;
+      font-family: inherit;
+      min-height: 140px;
+    }
+    #inputHighlights .hit{
+      background: var(--highlight);
+      border-radius: 4px;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    #input{
+      position: relative;
+      width: 100%;
+      height: 140px;
+      resize: vertical;
+      margin: 0;
+      border: none;
+      background: transparent;
+      outline: none;
+      padding: 12px 12px;
+      font-size: 16px;
+      line-height: 1.4;
+      font-family: inherit;
+
+      /* The textarea stays editable, but the visible text is rendered by #inputHighlights */
+      color: transparent;
+      caret-color: var(--text);
+    }
+    #input::placeholder{
+      color: var(--muted);
+      opacity: 1;
     }
 
     .toolbar{
@@ -124,7 +169,7 @@
       font-size: 13px;
     }
     th, td{
-      border-bottom: 1px solid var(--border);
+      border: 1px solid var(--border);
       padding: 10px 8px;
       text-align: left;
       vertical-align: middle;
@@ -162,39 +207,10 @@
       flex-wrap:wrap;
     }
 
-    /* Mobile-friendly stacked rows */
+    /* Mobile: keep the real table, enable horizontal scroll and tighten spacing */
     @media (max-width: 720px){
-      .table-wrap{ overflow-x: visible; border:none; background:transparent; }
-      table, thead, tbody, th, tr, td{ display:block; }
-      thead{ display:none; }
-      table{ background: transparent; }
-      tr{
-        background: var(--card);
-        border: 1px solid var(--border);
-        border-radius: var(--radius);
-        box-shadow: var(--shadow);
-        margin: 12px 0;
-        overflow:hidden;
-      }
-      td{
-        border: none;
-        border-bottom: 1px solid var(--border);
-        white-space: normal;
-        display:flex;
-        gap: 12px;
-        justify-content: space-between;
-        padding: 10px 12px;
-      }
-      td:last-child{ border-bottom:none; }
-      td::before{
-        content: attr(data-label);
-        color: var(--muted);
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-        font-weight: 600;
-        min-width: 110px;
-        flex: 0 0 auto;
-      }
-      .mono, th, td{ font-size: 14px; }
+      .mono, th, td{ font-size: 12px; }
+      th, td{ padding: 8px 6px; }
     }
   </style>
 </head>
@@ -207,7 +223,12 @@
       </p>
 
       <label for="input">Eingabe</label>
-      <textarea id="input" placeholder="Text eingeben…"></textarea>
+      <div class="textarea-shell">
+        <div id="highlightBackdrop" aria-hidden="true">
+          <div id="inputHighlights"></div>
+        </div>
+        <textarea id="input" placeholder="Text eingeben…"></textarea>
+      </div>
 
       <div class="toolbar">
         <div class="stats" id="stats" aria-live="polite">Bereit.</div>
@@ -346,6 +367,8 @@
 
     const els = {
       input: document.getElementById("input"),
+      highlightBackdrop: document.getElementById("highlightBackdrop"),
+      inputHighlights: document.getElementById("inputHighlights"),
       tbody: document.querySelector("#output tbody"),
       wrap: document.getElementById("tableWrap"),
       stats: document.getElementById("stats"),
@@ -361,11 +384,51 @@
       els.stats.textContent = text;
     }
 
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function syncHighlightScroll() {
+      if (!els.highlightBackdrop) return;
+      els.highlightBackdrop.scrollTop = els.input.scrollTop;
+      els.highlightBackdrop.scrollLeft = els.input.scrollLeft;
+    }
+
+    function updateInputHighlights(cpKey) {
+      const text = els.input.value;
+
+      if (!text.length) {
+        // Use textContent to avoid any leftover markup.
+        els.inputHighlights.textContent = "";
+        return;
+      }
+
+      const chars = Array.from(text);
+      let out = "";
+
+      for (const ch of chars) {
+        const cp = ch.codePointAt(0);
+        const safe = escapeHtml(ch);
+        if (cpKey && String(cp) === cpKey) out += `<span class="hit">${safe}</span>`;
+        else out += safe;
+      }
+
+      els.inputHighlights.innerHTML = out;
+      syncHighlightScroll();
+    }
+
     function clearHighlight() {
-      if (!activeHighlight) return;
-      const rows = rowIndex.get(activeHighlight) || [];
-      for (const tr of rows) tr.classList.remove("highlight");
-      activeHighlight = null;
+      if (activeHighlight) {
+        const rows = rowIndex.get(activeHighlight) || [];
+        for (const tr of rows) tr.classList.remove("highlight");
+        activeHighlight = null;
+      }
+      updateInputHighlights(null);
     }
 
     function highlightSame(cpKey) {
@@ -373,6 +436,7 @@
       activeHighlight = cpKey;
       const rows = rowIndex.get(cpKey) || [];
       for (const tr of rows) tr.classList.add("highlight");
+      updateInputHighlights(cpKey);
     }
 
     function createCell(label, html) {
@@ -454,7 +518,15 @@
     const renderDebounced = debounce(render, 120);
 
     // Live update while typing
-    els.input.addEventListener("input", renderDebounced);
+    // Note: because the textarea text is transparent (we render visible text via #inputHighlights),
+    // we must update the highlight layer immediately on each input.
+    els.input.addEventListener("input", () => {
+      clearHighlight();
+      renderDebounced();
+    });
+
+    // Keep the highlight layer aligned when the textarea scrolls.
+    els.input.addEventListener("scroll", syncHighlightScroll);
 
     // Optional explicit controls
     els.recalcBtn.addEventListener("click", render);
